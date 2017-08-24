@@ -2,42 +2,76 @@ package main
 
 import (
 	"fmt"
-	"math/big"
 )
 
-const b58set = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+const bitcoinAlphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
-var decodeMap [256]int8
+// BitcoinEncoding is the standard base58 encoding, for Bitcoin
+var BitcoinEncoding = NewEncoding(bitcoinAlphabet, With1Padding())
 
-func init() {
-	for i := range decodeMap {
-		decodeMap[i] = -1
-	}
-	for i, b := range b58set {
-		decodeMap[b] = int8(i)
+// An Encoding is a radix 58 encoding/decoding scheme, defined by a
+// 58-character alphabet. The most common encoding is the "base58"
+// check encoding for bitcoin
+type Encoding struct {
+	encode    string
+	decodeMap [256]int8
+
+	pad1 bool
+}
+
+// opts is the functional option type
+type opts func(*Encoding)
+
+// With1Padding adds a 1 at the beginning for each 0-padded prefix
+// of the base58 address
+func With1Padding() func(*Encoding) {
+	return func(e *Encoding) {
+		e.pad1 = true
 	}
 }
 
-var (
-	bn0  = big.NewInt(0)
-	bn58 = big.NewInt(58)
-)
-
-func FastBase58Encoding(bin []byte) string {
-	binsz := len(bin)
-	var i, j, high, zcount, carry int
-
-	for zcount < binsz && bin[zcount] == 0 {
-		zcount++
+// NewEncoding returns a new Encoding defined by the given alphabet,
+// which must be a 58-byte string.
+func NewEncoding(encoder string, options ...opts) *Encoding {
+	if len(encoder) != 58 {
+		panic("encoding alphabet is not 58-bytes long")
 	}
 
-	size := (binsz-zcount)*138/100 + 1
+	e := new(Encoding)
+	e.encode = encoder
+	for i := 0; i < len(e.decodeMap); i++ {
+		e.decodeMap[i] = -1
+	}
+	for i := 0; i < len(encoder); i++ {
+		e.decodeMap[encoder[i]] = int8(i)
+	}
+
+	for _, opt := range options {
+		opt(e)
+	}
+
+	return e
+}
+
+// Encode encodes src using the encoding enc, writing
+// EncodedLen(len(src)) bytes to dst.
+func (enc *Encoding) Encode(dst, src []byte) (n int) {
+	binsz := len(src)
+	var i, j, high, zcount, carry int
+
+	if enc.pad1 {
+		for zcount < binsz && src[zcount] == 0 {
+			zcount++
+		}
+	}
+
+	size := enc.EncodedLen(binsz - zcount)
 	var buf = make([]byte, size)
 
 	high = size - 1
 	for i = zcount; i < binsz; i++ {
 		j = size - 1
-		for carry = int(bin[i]); j > high || carry != 0; j-- {
+		for carry = int(src[i]); j > high || carry != 0; j-- {
 			carry = carry + 256*int(buf[j])
 			buf[j] = byte(carry % 58)
 			carry /= 58
@@ -45,172 +79,126 @@ func FastBase58Encoding(bin []byte) string {
 		high = j
 	}
 
-	for j = 0; j < size && buf[j] == 0; j++ {
+	if enc.pad1 {
+		for j = 0; j < size && buf[j] == 0; j++ {
+		}
 	}
 
-	var b58 = make([]byte, size-j+zcount)
-
-	if zcount != 0 {
+	n = size - j + zcount
+	if enc.pad1 && zcount != 0 {
 		for i = 0; i < zcount; i++ {
-			b58[i] = '1'
+			dst[i] = '1'
 		}
 	}
 
 	for i = zcount; j < size; i++ {
-		b58[i] = b58set[buf[j]]
-		j += 1
+		dst[i] = enc.encode[buf[j]]
+		j++
 	}
 
-	return string(b58)
+	return n
 }
 
-func TrivialBase58Encoding(a []byte) string {
-	idx := len(a)*138/100 + 1
-	buf := make([]byte, idx)
-	bn := new(big.Int).SetBytes(a)
-	var mo *big.Int
-	for bn.Cmp(bn0) != 0 {
-		bn, mo = bn.DivMod(bn, bn58, new(big.Int))
-		idx--
-		buf[idx] = b58set[mo.Int64()]
-	}
-	for i := range a {
-		if a[i] != 0 {
-			break
-		}
-		idx--
-		buf[idx] = b58set[0]
-	}
-	return string(buf[idx:])
+// EncodeToString returns the base58 encoding of src.
+func (enc *Encoding) EncodeToString(src []byte) string {
+	var buf = make([]byte, enc.EncodedLen(len(src)))
+	n := enc.Encode(buf, src)
+	return string(buf[:n])
 }
 
-func FastBase58Decoding(str string) ([]byte, error) {
-	if len(str) == 0 {
-		return nil, fmt.Errorf("zero length string")
+// EncodedLen returns the length in bytes of the base58 encoding
+// of an input buffer of length n.
+func (enc *Encoding) EncodedLen(i int) int {
+	return i*138/100 + 1
+}
+
+// Decode decodes src using the encoding enc. It writes at most
+// DecodedLen(len(src)) bytes to dst and returns the number of bytes
+// written. If src contains invalid base58 data, it will return the
+// number of bytes successfully written and an error.
+func (enc *Encoding) Decode(dst, src []byte) (n int, err error) {
+	if len(src) == 0 {
+		return n, fmt.Errorf("zero length string")
 	}
 
-	var (
-		t        uint64
-		zmask, c uint32
-		zcount   int
+	var size = len(src)
 
-		b58u  = []rune(str)
-		b58sz = len(b58u)
-
-		binsz     = len(b58u)
-		outisz    = (binsz + 3) / 4 // check to see if we need to change this buffer size to optimize
-		binu      = make([]byte, (binsz+3)*3)
-		bytesleft = binsz % 4
-	)
-
+	var zmask uint32
+	bytesleft := size % 4
 	if bytesleft > 0 {
 		zmask = (0xffffffff << uint32(bytesleft*8))
-	} else {
-		bytesleft = 4
 	}
 
-	var outi = make([]uint32, outisz)
-
-	var i = 0
-	for ; i < b58sz && b58u[i] == '1'; i++ {
-		zcount++
+	var zcount int
+	var buf = make([]uint32, (size+3)/4)
+	if enc.pad1 {
+		for ; zcount < size && src[zcount] == '1'; zcount++ {
+		}
 	}
 
-	for ; i < b58sz; i++ {
-		if b58u[i]&0x80 != 0 {
-			return nil, fmt.Errorf("High-bit set on invalid digit")
+	for i := zcount; i < size; i++ {
+		if src[i]&0x80 != 0 {
+			return n, fmt.Errorf("High-bit set on invalid digit")
 		}
 
-		if decodeMap[b58u[i]] == -1 {
-			return nil, fmt.Errorf("Invalid base58 digit (%q)", b58u[i])
+		if enc.decodeMap[src[i]] == -1 {
+			return n, fmt.Errorf("Invalid base58 digit (%q)", src[i])
 		}
 
-		c = uint32(decodeMap[b58u[i]])
+		c := uint32(enc.decodeMap[src[i]])
 
-		for j := (outisz - 1); j >= 0; j-- {
-			t = uint64(outi[j])*58 + uint64(c)
+		for j := len(buf) - 1; j >= 0; j-- {
+			t := uint64(buf[j])*58 + uint64(c)
 			c = uint32((t & 0x3f00000000) >> 32)
-			outi[j] = uint32(t & 0xffffffff)
+			buf[j] = uint32(t)
 		}
 
 		if c > 0 {
-			return nil, fmt.Errorf("Output number too big (carry to the next int32)")
+			return n, fmt.Errorf("Output number too big (carry to the next int32)")
 		}
 
-		if outi[0]&zmask != 0 {
-			return nil, fmt.Errorf("Output number too big (last int32 filled too far)")
+		if buf[0]&zmask != 0 {
+			return n, fmt.Errorf("Output number too big (last int32 filled too far)")
 		}
 	}
 
-	// the nested for-loop below is the same as the original code:
-	// switch (bytesleft) {
-	// 	case 3:
-	// 		*(binu++) = (outi[0] & 0xff0000) >> 16;
-	// 		//-fallthrough
-	// 	case 2:
-	// 		*(binu++) = (outi[0] & 0xff00) >>  8;
-	// 		//-fallthrough
-	// 	case 1:
-	// 		*(binu++) = (outi[0] & 0xff);
-	// 		++j;
-	// 		//-fallthrough
-	// 	default:
-	// 		break;
-	// }
-	//
-	// for (; j < outisz; ++j)
-	// {
-	// 	*(binu++) = (outi[j] >> 0x18) & 0xff;
-	// 	*(binu++) = (outi[j] >> 0x10) & 0xff;
-	// 	*(binu++) = (outi[j] >>    8) & 0xff;
-	// 	*(binu++) = (outi[j] >>    0) & 0xff;
-	// }
-	var j, cnt int
-	for j, cnt = 0, 0; j < outisz; j++ {
-		for mask := byte(bytesleft-1) * 8; mask <= 0x18; mask, cnt = mask-8, cnt+1 {
-			binu[cnt] = byte(outi[j] >> mask)
-		}
-		if j == 0 {
-			bytesleft = 4 // because it could be less than 4 the first time through
-		}
-	}
-
-	for n, v := range binu {
-		if v > 0 {
-			start := n - zcount
-			if start < 0 {
-				start = 0
+	n = zcount
+	var mark bool
+	for j := 0; j < len(buf); j++ {
+		for k, mask := range []uint32{0x18, 0x10, 0x8, 0x0} {
+			if j == 0 && bytesleft > 0 && k < 4-bytesleft {
+				continue // skip the first bytes left over
 			}
-			return binu[start:cnt], nil
+			if n > len(dst)-1 {
+				return n - 1, fmt.Errorf("Unexpected end")
+			}
+			dst[n] = byte(buf[j] >> mask)
+			if !mark && dst[n] == 0 {
+				continue
+			} else if !mark && dst[n] > 0 {
+				mark = true
+			}
+			n++
 		}
 	}
 
-	return binu[:j], nil
+	return n, nil
 }
 
-// Decode decodes the base58 encoded bytes.
-// based
-func TrivialBase58Decoding(str string) ([]byte, error) {
+// DecodeString returns the bytes represented by the base58 string str.
+func (enc *Encoding) DecodeString(str string) ([]byte, error) {
 	var zcount int
-	for i := 0; i < len(str) && str[i] == '1'; i++ {
-		zcount++
-	}
-	leading := make([]byte, zcount)
-
-	var padChar rune = -1
-	src := []byte(str)
-	j := 0
-	for ; j < len(src) && src[j] == byte(padChar); j++ {
-	}
-
-	n := new(big.Int)
-	for i := range src[j:] {
-		c := decodeMap[src[i]]
-		if c == -1 {
-			return nil, fmt.Errorf("illegal base58 data at input index: %d", i)
+	if enc.pad1 {
+		for ; zcount < len(str) && str[zcount] == '1'; zcount++ {
 		}
-		n.Mul(n, bn58)
-		n.Add(n, big.NewInt(int64(c)))
 	}
-	return append(leading, n.Bytes()...), nil
+	buf := make([]byte, enc.DecodedLen(len(str))+zcount)
+	n, err := enc.Decode(buf, []byte(str))
+	return buf[:n], err
+}
+
+// DecodedLen returns the maximum length in bytes of the decoded data
+// corresponding to n bytes of base58-encoded data.
+func (enc *Encoding) DecodedLen(n int) int {
+	return n
 }

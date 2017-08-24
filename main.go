@@ -60,7 +60,7 @@ func main() {
 	}
 
 	if *decode {
-		decoded, err := FastBase58Decoding(string(bin))
+		decoded, err := BitcoinEncoding.DecodeString(string(bin))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "decode input err: %v\n", err)
 			os.Exit(1)
@@ -92,7 +92,7 @@ func main() {
 		bin = append(bin, sum[:4]...)
 	}
 
-	encoded := FastBase58Encoding(bin)
+	encoded := BitcoinEncoding.EncodeToString(bin)
 
 	if *lnBreak > 0 {
 		lines := (len(encoded) / *lnBreak) + 1
