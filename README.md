@@ -1,6 +1,6 @@
-[![GoDoc](https://godoc.org/github.com/njones/go-base58?status.svg)](https://godoc.org/github.com/njones/go-base58)
+[![GoDoc](https://godoc.org/github.com/njones/base58?status.svg)](https://godoc.org/github.com/njones/base58)
 
-# go-base58
+# Base58
 
 Fast implementation of base58 encoding on golang.
 
@@ -12,8 +12,8 @@ Without big.Int divisions it works more than 4 times faster.
 
 ## Installation
 
-    go get github.com/njones/go-base58
+    go get github.com/njones/base58
 
 ## License
 
-go-base58 is available under the [MIT License](https://opensource.org/licenses/MIT).
+base58 is available under the [MIT License](https://opensource.org/licenses/MIT).
