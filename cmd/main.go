@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"flag"
 	"fmt"
 	"io"
@@ -106,11 +105,4 @@ func command(fin io.Reader, fout io.Writer, decode, check, useError *bool, lnBre
 	}
 	fmt.Fprintln(fout, encoded)
 	return nil, 0
-}
-
-func checkSum(b []byte) []byte {
-	sh1, sh2 := sha256.New(), sha256.New()
-	sh1.Write(b)
-	sh2.Write(sh1.Sum(nil))
-	return sh2.Sum(nil)
 }
