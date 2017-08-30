@@ -2,7 +2,7 @@
 
 # Base58    
 
-Fast implementation of base58 encoding on golang.
+A fast implementation of base58 encoding and decoding written in go.
 
 Base algorithms are copied from https://github.com/trezor/trezor-crypto/blob/master/base58.c
 
