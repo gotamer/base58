@@ -3,25 +3,20 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
-)
+	"strings"
 
-func checkSum(b []byte) []byte {
-	sh1, sh2 := sha256.New(), sha256.New()
-	sh1.Write(b)
-	sh2.Write(sh1.Sum(nil))
-	return sh2.Sum(nil)
-}
+	"github.com/njones/base58"
+)
 
 func main() {
 	var (
-		err error
-		bin []byte
+		err      error
+		exitCode int
 
 		help     = flag.Bool("h", false, "display this message")
 		lnBreak  = flag.Int("b", 76, "break encoded string into num character lines. Use 0 to disable line wrapping")
@@ -54,51 +49,54 @@ func main() {
 		}
 	}
 
+	// separated out for better testing
+	err, exitCode = command(fin, fout, decode, check, useError, *lnBreak)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "input file err: %v\n", err)
+	}
+	os.Exit(exitCode)
+}
+
+func command(fin io.Reader, fout io.Writer, decode, check, useError *bool, lnBreak int) (err error, code int) {
+	var bin, decoded []byte
+
 	if bin, err = ioutil.ReadAll(fin); err != nil {
-		fmt.Fprintf(os.Stderr, "read input err: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("read input err: %v\n", err), 1
 	}
 
 	if *decode {
-		decoded, err := BitcoinEncoding.DecodeString(string(bin))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "decode input err: %v\n", err)
-			os.Exit(1)
+		decodeString := base58.StdEncoding.DecodeString
+		if *check {
+			decodeString = base58.BitcoinEncoding.DecodeString
 		}
 
-		var checkResult bool
-		if *check {
-			chk := len(decoded) - 4
-			decodedCk := decoded[chk:]
-			decoded = decoded[:chk]
-			sum := checkSum(decoded)
-			checkResult = hex.EncodeToString(sum[:4]) == hex.EncodeToString(decodedCk)
+		decoded, err = decodeString(strings.TrimSpace(string(bin)))
+		if err != nil && err != base58.ErrInvalidChecksum {
+			return fmt.Errorf("decode input err: %v\n", err), 1
 		}
 
 		io.Copy(fout, bytes.NewReader(decoded))
 
-		if *check && !checkResult {
+		if *check && err == base58.ErrInvalidChecksum {
 			if *useError {
-				fmt.Fprintf(os.Stderr, "%t", false)
+				return err, 3
 			}
-			os.Exit(3)
+			return nil, 3
 		}
-
-		os.Exit(0)
+		return nil, 0
 	}
 
+	encodeToString := base58.StdEncoding.EncodeToString
 	if *check {
-		sum := checkSum(bin)
-		bin = append(bin, sum[:4]...)
+		encodeToString = base58.BitcoinEncoding.EncodeToString
 	}
 
-	encoded := BitcoinEncoding.EncodeToString(bin)
-
-	if *lnBreak > 0 {
-		lines := (len(encoded) / *lnBreak) + 1
+	encoded := encodeToString(bin)
+	if lnBreak > 0 {
+		lines := (len(encoded) / lnBreak) + 1
 		for i := 0; i < lines; i++ {
-			start := i * *lnBreak
-			end := start + *lnBreak
+			start := i * lnBreak
+			end := start + lnBreak
 			if i == lines-1 {
 				fmt.Fprintln(fout, encoded[start:])
 				return
@@ -107,4 +105,12 @@ func main() {
 		}
 	}
 	fmt.Fprintln(fout, encoded)
+	return nil, 0
+}
+
+func checkSum(b []byte) []byte {
+	sh1, sh2 := sha256.New(), sha256.New()
+	sh1.Write(b)
+	sh2.Write(sh1.Sum(nil))
+	return sh2.Sum(nil)
 }

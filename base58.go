@@ -1,13 +1,37 @@
-package main
+// Package base58 implements base58 encoding as used by Bitcoin and Flickr
+package base58
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 )
 
-const bitcoinAlphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+type errString string
 
-// BitcoinEncoding is the standard base58 encoding, for Bitcoin
-var BitcoinEncoding = NewEncoding(bitcoinAlphabet, With1Padding())
+func (e errString) Error() string {
+	return string(e)
+}
+
+// ErrInvalidChecksum is the error return when the checksum does not match
+const ErrInvalidChecksum = errString("the checksum is invalid")
+
+const bitcoinAlphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+const flickrAlphabet = "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"
+
+var (
+	decodeBlockSizes = [...]int{0, 0, 1, 2, 3, 3, 4, 5, 6, 6, 7, 8}
+	encodeBlockSizes = [...]int{0, 2, 3, 5, 6, 7, 9, 10, 11}
+)
+
+// StdEncoding is the standard base58 encoding based on the bitcoin alphabet
+var StdEncoding = NewEncoding(bitcoinAlphabet)
+
+// BitcoinEncoding is the standard base58 encoding with a checksum
+var BitcoinEncoding = NewEncoding(bitcoinAlphabet, WithChecksum(4))
+
+// flickrEncoding is the standard base58 encoding with a checksum
+var FlickrEncoding = NewEncoding(flickrAlphabet)
 
 // An Encoding is a radix 58 encoding/decoding scheme, defined by a
 // 58-character alphabet. The most common encoding is the "base58"
@@ -16,17 +40,22 @@ type Encoding struct {
 	encode    string
 	decodeMap [256]int8
 
-	pad1 bool
+	checkNum  int
+	checkFunc func([]byte) []byte
 }
 
 // opts is the functional option type
 type opts func(*Encoding)
 
-// With1Padding adds a 1 at the beginning for each 0-padded prefix
-// of the base58 address
-func With1Padding() func(*Encoding) {
-	return func(e *Encoding) {
-		e.pad1 = true
+func WithChecksum(i int) func(*Encoding) {
+	return func(enc *Encoding) {
+		enc.checkNum = i
+	}
+}
+
+func WithChecksumFunc(fn func([]byte) []byte) func(*Encoding) {
+	return func(enc *Encoding) {
+		enc.checkFunc = fn
 	}
 }
 
@@ -39,6 +68,12 @@ func NewEncoding(encoder string, options ...opts) *Encoding {
 
 	e := new(Encoding)
 	e.encode = encoder
+	e.checkFunc = func(b []byte) []byte {
+		sh1, sh2 := sha256.New(), sha256.New()
+		sh1.Write(b)
+		sh2.Write(sh1.Sum(nil))
+		return sh2.Sum(nil)
+	}
 	for i := 0; i < len(e.decodeMap); i++ {
 		e.decodeMap[i] = -1
 	}
@@ -59,13 +94,22 @@ func (enc *Encoding) Encode(dst, src []byte) (n int) {
 	binsz := len(src)
 	var i, j, high, zcount, carry int
 
-	if enc.pad1 {
-		for zcount < binsz && src[zcount] == 0 {
-			zcount++
-		}
+	for zcount < binsz && src[zcount] == 0 {
+		zcount++
 	}
 
-	size := enc.EncodedLen(binsz - zcount)
+	if zcount == len(src) {
+		copy(dst, []byte("0"))
+		return 1
+	}
+
+	if enc.checkNum > 0 {
+		checkSum := enc.checkFunc(src)
+		src = append(src, checkSum[:enc.checkNum]...)
+		binsz = len(src)
+	}
+
+	size := enc.EncodedLen(binsz-zcount) - enc.checkNum
 	var buf = make([]byte, size)
 
 	high = size - 1
@@ -79,13 +123,11 @@ func (enc *Encoding) Encode(dst, src []byte) (n int) {
 		high = j
 	}
 
-	if enc.pad1 {
-		for j = 0; j < size && buf[j] == 0; j++ {
-		}
+	for j = 0; j < size && buf[j] == 0; j++ {
 	}
 
 	n = size - j + zcount
-	if enc.pad1 && zcount != 0 {
+	if zcount != 0 {
 		for i = 0; i < zcount; i++ {
 			dst[i] = '1'
 		}
@@ -101,15 +143,15 @@ func (enc *Encoding) Encode(dst, src []byte) (n int) {
 
 // EncodeToString returns the base58 encoding of src.
 func (enc *Encoding) EncodeToString(src []byte) string {
-	var buf = make([]byte, enc.EncodedLen(len(src)))
+	var buf = make([]byte, enc.EncodedLen(len(src))+enc.checkNum)
 	n := enc.Encode(buf, src)
 	return string(buf[:n])
 }
 
 // EncodedLen returns the length in bytes of the base58 encoding
 // of an input buffer of length n.
-func (enc *Encoding) EncodedLen(i int) int {
-	return i*138/100 + 1
+func (enc *Encoding) EncodedLen(n int) int {
+	return ((n / 8) * 11) + encodeBlockSizes[n%8] + enc.checkNum
 }
 
 // Decode decodes src using the encoding enc. It writes at most
@@ -131,9 +173,7 @@ func (enc *Encoding) Decode(dst, src []byte) (n int, err error) {
 
 	var zcount int
 	var buf = make([]uint32, (size+3)/4)
-	if enc.pad1 {
-		for ; zcount < size && src[zcount] == '1'; zcount++ {
-		}
+	for ; zcount < size && src[zcount] == '1'; zcount++ {
 	}
 
 	for i := zcount; i < size; i++ {
@@ -182,17 +222,29 @@ func (enc *Encoding) Decode(dst, src []byte) (n int, err error) {
 		}
 	}
 
+	if enc.checkNum > 0 {
+		if n < enc.checkNum {
+			return n, fmt.Errorf("Invalid checksum length")
+		}
+
+		n -= enc.checkNum
+		checkSum, dst := dst[n:], dst[:n]
+		checkChecksum := enc.checkFunc(dst)
+		if hex.EncodeToString(checkSum[:enc.checkNum]) != hex.EncodeToString(checkChecksum[:enc.checkNum]) {
+			return n, ErrInvalidChecksum
+		}
+	}
+
 	return n, nil
 }
 
 // DecodeString returns the bytes represented by the base58 string str.
 func (enc *Encoding) DecodeString(str string) ([]byte, error) {
 	var zcount int
-	if enc.pad1 {
-		for ; zcount < len(str) && str[zcount] == '1'; zcount++ {
-		}
+	for ; zcount < len(str) && str[zcount] == '1'; zcount++ {
 	}
-	buf := make([]byte, enc.DecodedLen(len(str))+zcount)
+
+	buf := make([]byte, enc.DecodedLen(len(str)))
 	n, err := enc.Decode(buf, []byte(str))
 	return buf[:n], err
 }
@@ -200,5 +252,5 @@ func (enc *Encoding) DecodeString(str string) ([]byte, error) {
 // DecodedLen returns the maximum length in bytes of the decoded data
 // corresponding to n bytes of base58-encoded data.
 func (enc *Encoding) DecodedLen(n int) int {
-	return n
+	return (((n / 11) * 8) + decodeBlockSizes[n%11]) + 3
 }
