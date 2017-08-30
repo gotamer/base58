@@ -263,9 +263,7 @@ func BenchmarkTrivialBase58Encoding(b *testing.B) {
 
 	data := make([]byte, 32)
 	for i := 0; i < b.N; i++ {
-		b.StopTimer()
 		rand.Read(data)
-		b.StartTimer()
 		radixEncoding(data)
 	}
 }

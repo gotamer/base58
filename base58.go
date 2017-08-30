@@ -1,4 +1,4 @@
-// Package base58 implements base58 encoding as used by Bitcoin and Flickr
+// Package base58 implements very fast base58 encoding as used by Bitcoin and Flickr
 package base58
 
 import (
