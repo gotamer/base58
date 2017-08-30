@@ -13,8 +13,19 @@ func (e errString) Error() string {
 	return string(e)
 }
 
-// ErrInvalidChecksum is the error return when the checksum does not match
+// ErrInvalidChecksum is returned when the checksum does not match
 const ErrInvalidChecksum = errString("the checksum is invalid")
+
+// ErrInvalidChecksumLength is returned when the length of the decoded
+// value can't contain the length of the checksum
+const ErrInvalidChecksumLength = errString("the checksum is an invalid length")
+
+// ErrUnexpectedDestinationEOF is returned when the destination byte slice is
+// not big enough to fit all of the source decoded data
+const ErrUnexpectedEOF = errString("unexpected dst EOF")
+
+// ErrZeroLength is returned when a the src string is of length 0
+const ErrZeroLength = errString("zero length src string")
 
 const bitcoinAlphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 const flickrAlphabet = "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"
@@ -160,7 +171,7 @@ func (enc *Encoding) EncodedLen(n int) int {
 // number of bytes successfully written and an error.
 func (enc *Encoding) Decode(dst, src []byte) (n int, err error) {
 	if len(src) == 0 {
-		return n, fmt.Errorf("zero length string")
+		return n, ErrZeroLength
 	}
 
 	var size = len(src)
@@ -178,11 +189,11 @@ func (enc *Encoding) Decode(dst, src []byte) (n int, err error) {
 
 	for i := zcount; i < size; i++ {
 		if src[i]&0x80 != 0 {
-			return n, fmt.Errorf("High-bit set on invalid digit")
+			return n, fmt.Errorf("high-bit set on invalid digit")
 		}
 
 		if enc.decodeMap[src[i]] == -1 {
-			return n, fmt.Errorf("Invalid base58 digit (%q)", src[i])
+			return n, fmt.Errorf("invalid base58 digit (%q)", src[i])
 		}
 
 		c := uint32(enc.decodeMap[src[i]])
@@ -194,11 +205,11 @@ func (enc *Encoding) Decode(dst, src []byte) (n int, err error) {
 		}
 
 		if c > 0 {
-			return n, fmt.Errorf("Output number too big (carry to the next int32)")
+			return n, fmt.Errorf("output number too big (carry to the next int32)")
 		}
 
 		if buf[0]&zmask != 0 {
-			return n, fmt.Errorf("Output number too big (last int32 filled too far)")
+			return n, fmt.Errorf("output number too big (last int32 filled too far)")
 		}
 	}
 
@@ -210,7 +221,7 @@ func (enc *Encoding) Decode(dst, src []byte) (n int, err error) {
 				continue // skip the first bytes left over
 			}
 			if n > len(dst)-1 {
-				return n - 1, fmt.Errorf("Unexpected end")
+				return n - 1, ErrUnexpectedEOF
 			}
 			dst[n] = byte(buf[j] >> mask)
 			if !mark && dst[n] == 0 {
@@ -224,7 +235,7 @@ func (enc *Encoding) Decode(dst, src []byte) (n int, err error) {
 
 	if enc.checkNum > 0 {
 		if n < enc.checkNum {
-			return n, fmt.Errorf("Invalid checksum length")
+			return n, ErrInvalidChecksumLength
 		}
 
 		n -= enc.checkNum
