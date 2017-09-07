@@ -49,18 +49,18 @@ func main() {
 	}
 
 	// separated out for better testing
-	err, exitCode = command(fin, fout, decode, check, useError, *lnBreak)
+	exitCode, err = command(fin, fout, decode, check, useError, *lnBreak)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "input file err: %v\n", err)
 	}
 	os.Exit(exitCode)
 }
 
-func command(fin io.Reader, fout io.Writer, decode, check, useError *bool, lnBreak int) (err error, code int) {
+func command(fin io.Reader, fout io.Writer, decode, check, useError *bool, lnBreak int) (code int, err error) {
 	var bin, decoded []byte
 
 	if bin, err = ioutil.ReadAll(fin); err != nil {
-		return fmt.Errorf("read input err: %v\n", err), 1
+		return 1, fmt.Errorf("read input err: %v\n", err)
 	}
 
 	if *decode {
@@ -71,18 +71,18 @@ func command(fin io.Reader, fout io.Writer, decode, check, useError *bool, lnBre
 
 		decoded, err = decodeString(strings.TrimSpace(string(bin)))
 		if err != nil && err != base58.ErrInvalidChecksum {
-			return fmt.Errorf("decode input err: %v\n", err), 1
+			return 1, fmt.Errorf("decode input err: %v\n", err)
 		}
 
 		io.Copy(fout, bytes.NewReader(decoded))
 
 		if *check && err == base58.ErrInvalidChecksum {
 			if *useError {
-				return err, 3
+				return 3, err
 			}
-			return nil, 3
+			return 3, nil
 		}
-		return nil, 0
+		return 0, nil
 	}
 
 	encodeToString := base58.StdEncoding.EncodeToString
@@ -104,5 +104,5 @@ func command(fin io.Reader, fout io.Writer, decode, check, useError *bool, lnBre
 		}
 	}
 	fmt.Fprintln(fout, encoded)
-	return nil, 0
+	return 0, nil
 }

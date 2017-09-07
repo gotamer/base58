@@ -16,10 +16,10 @@ func TestSimple(t *testing.T) {
 
 	err, code := command(strings.NewReader(have), gather, &decode, &check, &useError, 200)
 	if err != nil {
-		t.Errorf("command err:", err)
+		t.Errorf("command err: %v", err)
 	}
 	if code != 0 {
-		t.Errorf("code not 0:", code)
+		t.Errorf("code not 0: %v", code)
 	}
 	if gather.String() != want {
 		t.Errorf("want: %q have: %q", gather.String(), want)
@@ -28,10 +28,10 @@ func TestSimple(t *testing.T) {
 	gather.Reset()
 	err1, code1 := command(strings.NewReader(want), gather, &doDecode, &check, &useError, 200)
 	if err1 != nil {
-		t.Errorf("command err:", err1)
+		t.Errorf("command err: %v", err1)
 	}
 	if code != 0 {
-		t.Errorf("code not 0:", code1)
+		t.Errorf("code not 0: %v", code1)
 	}
 
 	if gather.String() != have {
@@ -50,10 +50,10 @@ func TestSimpleCheck(t *testing.T) {
 
 	err, code := command(strings.NewReader(have), gather, &decode, &check, &useError, 200)
 	if err != nil {
-		t.Errorf("command err:", err)
+		t.Errorf("command err: %v", err)
 	}
 	if code != 0 {
-		t.Errorf("code not 0:", code)
+		t.Errorf("code not 0: %v", code)
 	}
 	if gather.String() != want {
 		t.Errorf("want: %q have: %q", gather.String(), want)
@@ -62,10 +62,10 @@ func TestSimpleCheck(t *testing.T) {
 	gather.Reset()
 	err1, code1 := command(strings.NewReader(want), gather, &doDecode, &check, &useError, 200)
 	if err1 != nil {
-		t.Errorf("command err:", err1)
+		t.Errorf("command err: %v", err1)
 	}
 	if code != 0 {
-		t.Errorf("code not 0:", code1)
+		t.Errorf("code not 0: %v", code1)
 	}
 
 	if gather.String() != have {

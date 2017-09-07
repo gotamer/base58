@@ -20,7 +20,7 @@ const ErrInvalidChecksum = errString("the checksum is invalid")
 // value can't contain the length of the checksum
 const ErrInvalidChecksumLength = errString("the checksum is an invalid length")
 
-// ErrUnexpectedDestinationEOF is returned when the destination byte slice is
+// ErrUnexpectedEOF is returned when the destination byte slice is
 // not big enough to fit all of the source decoded data
 const ErrUnexpectedEOF = errString("unexpected dst EOF")
 
@@ -41,7 +41,7 @@ var StdEncoding = NewEncoding(bitcoinAlphabet)
 // BitcoinEncoding is the standard base58 encoding with a checksum
 var BitcoinEncoding = NewEncoding(bitcoinAlphabet, WithChecksum(4))
 
-// flickrEncoding is the standard base58 encoding with a checksum
+// FlickrEncoding is the standard base58 encoding with a checksum
 var FlickrEncoding = NewEncoding(flickrAlphabet)
 
 // An Encoding is a radix 58 encoding/decoding scheme, defined by a
@@ -58,12 +58,17 @@ type Encoding struct {
 // opts is the functional option type
 type opts func(*Encoding)
 
+// WithChecksum adds a checksum of i length using the function
+// defined in WithChecksumFunc to the end of encoded data
 func WithChecksum(i int) func(*Encoding) {
 	return func(enc *Encoding) {
 		enc.checkNum = i
 	}
 }
 
+// WithChecksumFunc replaces the default sha256(sha256()) checksum hashing
+// with a function that takes in a byte slice and returns one, it's usually
+// a cryptographic hashing function
 func WithChecksumFunc(fn func([]byte) []byte) func(*Encoding) {
 	return func(enc *Encoding) {
 		enc.checkFunc = fn

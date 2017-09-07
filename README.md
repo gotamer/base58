@@ -1,4 +1,5 @@
 [![GoDoc](https://godoc.org/github.com/njones/base58?status.svg)](https://godoc.org/github.com/njones/base58)
+[![Go Report Card](https://goreportcard.com/badge/njones/base58)](https://goreportcard.com/report/njones/base58)
 
 # Base58    
 
